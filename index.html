@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Deck Viewer</title>
+
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 30px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        .section {
+            margin-top: 24px;
+        }
+
+        .card-row {
+            margin: 2px 0;
+        }
+
+        .total {
+            font-size: 20px;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+
+        .categories {
+            display: flex;
+            gap: 20px;
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <h1>Deck Viewer</h1>
+
+    <div>
+        <p>カードマスタ (JP_Card_Data.csv)</p>
+        <input type="file" id="masterFile" accept=".csv">
+    </div>
+
+    <br>
+
+    <div>
+        <p>デッキCSV</p>
+        <input type="file" id="deckFile" accept=".csv">
+    </div>
+
+    <br>
+
+    <button id="convertBtn">変換</button>
+
+    <div id="result"></div>
+
+    <script>
+
+        document
+            .getElementById("convertBtn")
+            .addEventListener("click", convert);
+
+        async function convert() {
+
+            const response = await fetch("JP_Card_Data.csv");
+            const deckFile =
+                document.getElementById("deckFile").files[0];
+
+            if (!deckFile) {
+                alert("デッキCSVを選択してください");
+                return;
+            }
+            if (!response.ok) {
+                alert("JP_Card_Data.csvの読み込みに失敗しました");
+                return;
+            }
+            const masterText = await response.text();
+            const deckText = await deckFile.text();
+
+            //----------------------------------
+            // カードマスタ読込
+            //----------------------------------
+
+            const cardMap = new Map();
+
+            const masterLines = masterText
+                .split(/\r?\n/)
+                .filter(x => x.trim());
+
+            const header = masterLines[0].split(",");
+
+            const idIndex =
+                header.findIndex(x => x.includes("カード ID"));
+
+            const nameIndex =
+                header.findIndex(x => x.includes("カード名"));
+
+            const categoryIndex =
+                header.findIndex(x => x.includes("ポケモンの進化の段階/エネルギー・トレーナーズの種類"));
+
+            for (let i = 1; i < masterLines.length; i++) {
+
+                const cols = masterLines[i].split(",");
+
+                const id = cols[idIndex]?.trim();
+                const name = cols[nameIndex]?.trim();
+                const rawCategory = cols[categoryIndex]?.trim();
+
+                let category;
+
+                if (rawCategory?.startsWith("ポケモン/")) {
+                    category = "ポケモン";
+                }
+                else if (
+                    rawCategory === "グッズ" ||
+                    rawCategory === "ポケモンのどうぐ"
+                ) {
+                    category = "グッズ";
+                }
+                else if (
+                    rawCategory === "基本エネルギー" ||
+                    rawCategory === "特殊エネルギー"
+                ) {
+                    category = "エネルギー";
+                }
+                else {
+                    category = rawCategory;
+                }
+
+                if (!id || !name) {
+                    continue;
+                }
+
+
+                cardMap.set(id, {
+                    name,
+                    category
+                });
+            }
+
+            //----------------------------------
+            // デッキ集計
+            //----------------------------------
+
+            const countMap = new Map();
+
+            const deckLines = deckText
+                .split(/\r?\n/)
+                .filter(x => x.trim());
+
+            for (const line of deckLines) {
+
+                const id = line.trim();
+
+                countMap.set(
+                    id,
+                    (countMap.get(id) || 0) + 1
+                );
+            }
+
+            //----------------------------------
+            // 表示データ生成
+            //----------------------------------
+
+            const rows = [];
+
+            let totalCards = 0;
+
+            for (const [id, count] of countMap.entries()) {
+
+                totalCards += count;
+
+                const card = cardMap.get(id);
+
+                rows.push({
+                    id,
+                    count,
+                    name: card?.name ?? "(不明カード)",
+                    category: card?.category ?? "その他"
+                });
+            }
+
+            //----------------------------------
+            // カテゴリ順
+            //----------------------------------
+
+            const categoryOrder = [
+                "ポケモン",
+                "グッズ",
+                "サポート",
+                "スタジアム",
+                "エネルギー",
+                "その他"
+            ];
+
+            const grouped = {};
+
+            for (const category of categoryOrder) {
+                grouped[category] = [];
+            }
+
+            for (const row of rows) {
+
+                const category =
+                    categoryOrder.includes(row.category)
+                        ? row.category
+                        : "その他";
+
+                if (!grouped[category]) {
+                    grouped[category] = [];
+                }
+
+                grouped[category].push(row);
+            }
+
+            //----------------------------------
+            // HTML生成
+            //----------------------------------
+
+            let html = `
+    <div class="total">
+        合計 ${totalCards}枚
+    </div>
+
+    <div class="categories">
+`;
+
+            for (const category of categoryOrder) {
+
+                const cards = grouped[category];
+
+                if (!cards || cards.length === 0) {
+                    continue;
+                }
+
+                cards.sort((a, b) =>
+                    a.name.localeCompare(b.name, "ja")
+                );
+
+                const categoryCount =
+                    cards.reduce(
+                        (sum, card) => sum + card.count,
+                        0
+                    );
+
+                html += `
+            <div class="section">
+                <h2>${category} (${categoryCount})</h2>
+        `;
+
+                for (const card of cards) {
+
+                    html += `
+                <div class="card-row">
+                    ${card.count} ${card.name}
+                </div>
+            `;
+                }
+
+                html += `</div>`;
+            }
+            html += "</div>";
+            document.getElementById("result").innerHTML = html;
+        }
+
+    </script>
+
+</body>
+
+</html>
